@@ -80,11 +80,12 @@ Shared flags on the retrieve + NLI scripts: `--reranker {pinecone,mps}` and `--n
 ### Install
 
 ```bash
-conda create -n crosscheck python=3.11 -y
+conda env create -f environment.yml   # or: python3.11 -m venv .venv && pip install -e ".[dev]"
 conda activate crosscheck
-pip install -e ".[dev]"
 cp .env.example .env
 ```
+
+`pyproject.toml` is the single source of dependencies.
 
 Required in `.env`:
 
@@ -166,3 +167,9 @@ Run `eval_20260827_074408`. Live retrieve + Gemini NLI on 160 FY2025 claims (5 c
 | Unverifiable         | 0          | 0             | 40           |
 
 Period reports: `data/reports/golden/{year}/{TICKER}/`. Aggregates: `data/runs/golden/eval_20260827_074408/` (`summary.csv`, `confusion_matrix.csv`, `error_buckets.csv`, `per_claim.csv`, `metrics.json`).
+
+## Limitations
+
+- **Golden-set construction may overstate accuracy.** Labels were drafted, checked against a live run, and matching claims were promoted into the golden set. Claims the system disagreed with were less likely to make it in, so the NLI numbers above are an upper bound. A blind, hand-labelled held-out set is the next step.
+- **Recall@k here is evidence-citation recall, not pure retrieval recall.** A hit means the reference figures appear in the NLI reasoning, so it depends on both the retriever surfacing the passage and the model citing it. Passage-level recall (is the gold figure anywhere in the top-k chunks?) is not reported yet.
+- **Small scope.** 5 large-cap tickers, one fiscal year, 160 claims, a single NLI model (Gemini). Results may not transfer to smaller filers with messier filings.
