@@ -31,6 +31,29 @@ def add_retrieve_nli_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_numeric_check_arguments(parser: argparse.ArgumentParser) -> None:
+    """Register ``--numeric-check`` and ``--numeric-override-threshold`` (opt-in)."""
+    from crosscheck.analysis.numeric_check import DEFAULT_OVERRIDE_THRESHOLD
+
+    parser.add_argument(
+        "--numeric-check",
+        action="store_true",
+        help=(
+            "Run the deterministic numeric checker before NLI: its verdict goes "
+            "into the prompt as a hint and may override a low-confidence label."
+        ),
+    )
+    parser.add_argument(
+        "--numeric-override-threshold",
+        type=float,
+        default=DEFAULT_OVERRIDE_THRESHOLD,
+        help=(
+            "Override the LLM only when its confidence is below this "
+            f"(default: {DEFAULT_OVERRIDE_THRESHOLD})."
+        ),
+    )
+
+
 def apply_retrieve_nli_options(
     *,
     reranker: RerankerChoice,

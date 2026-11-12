@@ -58,6 +58,8 @@ Generated corpora, indices, reports, and eval JSONL live under `data/` and are g
 
 Shared flags on the retrieve + NLI scripts: `--reranker {pinecone,mps}` and `--nli-model gemini`.
 
+`--numeric-check` (opt-in deterministic numeric checker; evaluation pending).
+
 ## Labels
 
 | Label             | Meaning                                               |

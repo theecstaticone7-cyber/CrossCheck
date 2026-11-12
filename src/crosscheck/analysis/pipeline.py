@@ -6,6 +6,7 @@ from collections import Counter
 
 from crosscheck.analysis.claims import load_saved_claims
 from crosscheck.analysis.nli import classify_claim
+from crosscheck.analysis.numeric_check import DEFAULT_OVERRIDE_THRESHOLD
 from crosscheck.models import DocumentMeta, PipelineReport
 from crosscheck.retrieval.embeddings import load_embedding_model
 from crosscheck.retrieval.index import (
@@ -32,6 +33,8 @@ def run_pipeline(
     top_k: int = 5,
     use_reranker: bool = True,
     rerank_pool_k: int | None = None,
+    numeric_check: bool = False,
+    override_threshold: float = DEFAULT_OVERRIDE_THRESHOLD,
 ) -> PipelineReport:
     """Load fixed claims, then run hybrid retrieval and NLI for one period."""
     label = f"{period.ticker} FY{period.fiscal_year} {period.fiscal_quarter}"
@@ -79,12 +82,24 @@ def run_pipeline(
         )
         print(f"nli ({len(retrieved)} passages) …", flush=True)
 
-        finding, nli_model, _matched = classify_claim(claim, retrieved, period=period)
+        finding, nli_model, _matched = classify_claim(
+            claim,
+            retrieved,
+            period=period,
+            numeric_check=numeric_check,
+            override_threshold=override_threshold,
+        )
         findings.append(finding)
         models_used.add(nli_model)
+        numeric_note = ""
+        if finding.numeric_check is not None:
+            numeric_note = f"  numeric={finding.numeric_check['verdict']}"
+            if finding.numeric_override:
+                numeric_note += f" (override from {finding.llm_classification})"
         print(
             f"    → {finding.classification}  "
-            f"confidence={finding.confidence_score:.2f}  model={nli_model}",
+            f"confidence={finding.confidence_score:.2f}  model={nli_model}"
+            f"{numeric_note}",
             flush=True,
         )
         reason = " ".join(finding.reasoning.split())

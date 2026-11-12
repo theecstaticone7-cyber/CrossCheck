@@ -319,6 +319,13 @@ class ContradictionFinding(BaseModel):
     classification: Classification
     confidence_score: float = Field(ge=0.0, le=1.0)
     reasoning: str
+    # Set only when the opt-in deterministic numeric check ran.
+    numeric_check: dict | None = None
+    llm_classification: Classification | None = Field(
+        default=None,
+        description="LLM label before any numeric-check override.",
+    )
+    numeric_override: bool = False
 
 
 class PipelineReport(BaseModel):

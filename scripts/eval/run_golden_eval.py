@@ -15,6 +15,7 @@ Examples::
     python scripts/eval/run_golden_eval.py --ticker AAPL --year 2025 --quarter Q1
     python scripts/eval/run_golden_eval.py --full --reranker mps
     python scripts/eval/run_golden_eval.py --force
+    python scripts/eval/run_golden_eval.py --full --numeric-check
 
 Prerequisites::
 
@@ -33,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from crosscheck.analysis.pipeline_options import (  # noqa: E402
+    add_numeric_check_arguments,
     add_retrieve_nli_arguments,
     apply_retrieve_nli_options,
 )
@@ -99,6 +101,7 @@ def main() -> None:
         help="Candidate pool before rerank (default: max(top_k*10, 20)).",
     )
     add_retrieve_nli_arguments(parser)
+    add_numeric_check_arguments(parser)
     args = parser.parse_args()
 
     apply_retrieve_nli_options(reranker=args.reranker, nli_model=args.nli_model)
@@ -175,6 +178,8 @@ def main() -> None:
                 top_k=args.top_k,
                 use_reranker=not args.no_rerank,
                 rerank_pool_k=args.rerank_pool_k,
+                numeric_check=args.numeric_check,
+                override_threshold=args.numeric_override_threshold,
             )
         except FileNotFoundError as exc:
             print(exc)
@@ -205,6 +210,10 @@ def main() -> None:
             ">50% truth tokens (reference figures + claim keywords) in NLI reasoning"
         ),
         "top_k": args.top_k,
+        "numeric_check": args.numeric_check,
+        "numeric_override_threshold": (
+            args.numeric_override_threshold if args.numeric_check else None
+        ),
         "periods": len(period_results),
         "claims": len(all_rows),
     }

@@ -16,6 +16,7 @@ Examples::
     python scripts/run_nli.py --year 2025
     python scripts/run_nli.py --ticker AAPL --year 2025 --quarter Q1
     python scripts/run_nli.py --year 2025 --force
+    python scripts/run_nli.py --ticker AAPL --year 2025 --quarter Q1 --numeric-check
 
 Output::
 
@@ -44,6 +45,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from crosscheck.analysis.claims import load_saved_claims  # noqa: E402
 from crosscheck.analysis.pipeline import run_pipeline  # noqa: E402
 from crosscheck.analysis.pipeline_options import (  # noqa: E402
+    add_numeric_check_arguments,
     add_retrieve_nli_arguments,
     apply_retrieve_nli_options,
 )
@@ -313,12 +315,8 @@ def main() -> None:
         type=int,
         help="Candidate pool before rerank (default: max(top_k*10, 20)).",
     )
-    parser.add_argument(
-        "--no-rerank",
-        action="store_true",
-        help="Disable cross-encoder reranking.",
-    )
     add_retrieve_nli_arguments(parser)
+    add_numeric_check_arguments(parser)
     parser.add_argument(
         "--profile",
         choices=("development", "production", "test", "dev"),
@@ -392,6 +390,8 @@ def main() -> None:
                     top_k=args.top_k,
                     use_reranker=not args.no_rerank,
                     rerank_pool_k=args.rerank_pool_k,
+                    numeric_check=args.numeric_check,
+                    override_threshold=args.numeric_override_threshold,
                 )
             except FileNotFoundError as exc:
                 print(exc)

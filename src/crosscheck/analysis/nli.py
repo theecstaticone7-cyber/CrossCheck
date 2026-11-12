@@ -5,6 +5,12 @@ from __future__ import annotations
 import re
 
 from crosscheck.analysis.llm import complete_structured
+from crosscheck.analysis.numeric_check import (
+    DEFAULT_OVERRIDE_THRESHOLD,
+    NumericCheckResult,
+    apply_override,
+    check_claim,
+)
 from crosscheck.analysis.prompts import NLI_SYSTEM, nli_user
 from crosscheck.models import (
     Chunk,
@@ -37,13 +43,29 @@ def classify_claim(
     retrieved: list[tuple[Chunk, float]],
     *,
     period: DocumentMeta,
+    numeric_check: bool = False,
+    override_threshold: float = DEFAULT_OVERRIDE_THRESHOLD,
 ) -> tuple[ContradictionFinding, str, int]:
     """Classify one claim against retrieved filing chunks.
 
     Returns ``(finding, model_used, matched_passage_index)`` where
     ``matched_passage_index`` is 1-based into ``retrieved`` (0 = none).
     Passages in the finding are in retrieval/rerank order (best first).
+
+    With ``numeric_check=True`` (opt-in), the deterministic checker runs first;
+    its verdict and evidence are appended to the prompt as a hint, and a
+    decisive MATCH / MISMATCH replaces the LLM label only when the LLM's
+    confidence is below ``override_threshold``. The finding records the
+    checker output, the LLM's own label and whether an override happened.
+    Only the claim text and passage texts reach the checker.
     """
+    check: NumericCheckResult | None = None
+    if numeric_check:
+        check = check_claim(
+            claim.claim,
+            [c.text for c, _ in retrieved],
+            fiscal_quarter=period.fiscal_quarter,
+        )
     passages = [_passage_for_nli(c) for c, _ in retrieved]
     plan = prepare_claim_query(claim.claim, fiscal_quarter=period.fiscal_quarter)
     user_content = nli_user(
@@ -57,6 +79,8 @@ def classify_claim(
     )
     if plan.nli_instruction_suffix:
         user_content = f"{user_content}\n\n{plan.nli_instruction_suffix}"
+    if check is not None:
+        user_content = f"{user_content}\n\n{check.prompt_hint()}"
     messages = [
         {"role": "system", "content": NLI_SYSTEM},
         {"role": "user", "content": user_content},
@@ -79,6 +103,18 @@ def classify_claim(
     if matched < 0 or matched > len(retrieved):
         matched = 0
 
+    label = judgment.classification
+    overridden = False
+    if check is not None:
+        label, overridden = apply_override(
+            judgment.classification,
+            judgment.confidence_score,
+            check,
+            threshold=override_threshold,
+        )
+        if overridden and 1 <= check.passage_index <= len(retrieved):
+            matched = check.passage_index
+
     # Citations always come from retrieval — never from the LLM.
     finding = ContradictionFinding(
         transcript_claim=claim.claim,
@@ -86,9 +122,12 @@ def classify_claim(
         retrieved_filing_passages=[c.text for c, _ in retrieved],
         chunk_ids=chunk_ids,
         global_ids=global_ids,
-        classification=judgment.classification,
+        classification=label,  # type: ignore[arg-type]
         confidence_score=judgment.confidence_score,
         reasoning=judgment.reasoning,
+        numeric_check=check.to_dict() if check is not None else None,
+        llm_classification=judgment.classification if check is not None else None,
+        numeric_override=overridden,
     )
     return finding, model, matched
 

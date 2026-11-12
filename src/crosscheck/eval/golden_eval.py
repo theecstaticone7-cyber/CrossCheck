@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from crosscheck.analysis.nli import classify_claim, extract_passage_indices
+from crosscheck.analysis.numeric_check import DEFAULT_OVERRIDE_THRESHOLD
 from crosscheck.eval.metrics import ClaimScoreRow, assign_bucket
 from crosscheck.eval.retrieval_truth import score_retrieval_hit
 from crosscheck.models import DocumentMeta, FinancialClaim, GoldenClaim
@@ -68,6 +69,9 @@ class GoldenClaimResult:
     matched_figures: list[str] = field(default_factory=list)
     missing_figures: list[str] = field(default_factory=list)
     retrieved: list[dict[str, Any]] = field(default_factory=list)
+    numeric_check: dict[str, Any] | None = None
+    llm_predicted: str | None = None
+    numeric_override: bool = False
 
 
 @dataclass
@@ -85,6 +89,8 @@ def run_golden_period(
     top_k: int = 5,
     use_reranker: bool = True,
     rerank_pool_k: int | None = None,
+    numeric_check: bool = False,
+    override_threshold: float = DEFAULT_OVERRIDE_THRESHOLD,
 ) -> GoldenPeriodResult:
     """Retrieve + NLI each golden claim for one company-period."""
     pool_k = rerank_pool_k if rerank_pool_k is not None else max(top_k * 10, 20)
@@ -129,7 +135,15 @@ def run_golden_period(
         )
         print(f"nli ({len(retrieved)} passages) …", flush=True)
 
-        finding, nli_model, matched_idx = classify_claim(fin, retrieved, period=period)
+        # Note: classify_claim (and the numeric checker inside it) only sees
+        # claim text + passages — never the golden label or reference.
+        finding, nli_model, matched_idx = classify_claim(
+            fin,
+            retrieved,
+            period=period,
+            numeric_check=numeric_check,
+            override_threshold=override_threshold,
+        )
         models_used.add(nli_model)
         matched_passage_indices = extract_passage_indices(
             finding.reasoning,
@@ -171,13 +185,22 @@ def run_golden_period(
                 matched_figures=matched,
                 missing_figures=missing,
                 retrieved=_retrieved_payload(retrieved),
+                numeric_check=finding.numeric_check,
+                llm_predicted=finding.llm_classification,
+                numeric_override=finding.numeric_override,
             )
         )
         print(
             f"    → pred={predicted}  expected={expected}  "
             f"retrieval_hit={'n/a' if hit is None else hit}  "
             f"bucket={bucket}  conf={finding.confidence_score:.2f}  "
-            f"passages={matched_passage_indices}",
+            f"passages={matched_passage_indices}"
+            + (
+                f"  numeric={finding.numeric_check['verdict']}"
+                + (" OVERRIDE" if finding.numeric_override else "")
+                if finding.numeric_check is not None
+                else ""
+            ),
             flush=True,
         )
         print(flush=True)
@@ -204,9 +227,12 @@ def format_claim_report(
     nli_model: str,
     matched_passage_indices: list[int],
     retrieved: list[dict[str, Any]],
+    numeric_check: dict[str, Any] | None = None,
+    llm_predicted: str | None = None,
+    numeric_override: bool = False,
 ) -> dict[str, Any]:
     """Serialize one claim row; ``matched_passage_indices`` precedes ``retrieved``."""
-    return {
+    row: dict[str, Any] = {
         "claim_id": claim.claim_id,
         "speaker": claim.speaker,
         "claim": claim.claim,
@@ -224,8 +250,13 @@ def format_claim_report(
         "nli_reasoning": nli_reasoning,
         "nli_model": nli_model,
         "matched_passage_indices": matched_passage_indices,
-        "retrieved": retrieved,
     }
+    if numeric_check is not None:
+        row["llm_predicted_nli_label"] = llm_predicted
+        row["numeric_override"] = numeric_override
+        row["numeric_check"] = numeric_check
+    row["retrieved"] = retrieved
+    return row
 
 
 def period_result_to_score_rows(result: GoldenPeriodResult) -> list[ClaimScoreRow]:
@@ -295,6 +326,9 @@ def write_golden_period_report(
                 nli_model=item.nli_model,
                 matched_passage_indices=item.matched_passage_indices,
                 retrieved=item.retrieved,
+                numeric_check=item.numeric_check,
+                llm_predicted=item.llm_predicted,
+                numeric_override=item.numeric_override,
             )
         )
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
